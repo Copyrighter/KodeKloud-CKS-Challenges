@@ -1,0 +1,99 @@
+Answer
+
+cd /var
+mkdir www
+cd www
+mkdir html
+
+cd /opt
+
+curl -L https://github.com/aquasecurity/kube-bench/releases/download/v0.6.2/kube-bench_0.6.2_linux_amd64.tar.gz -o kube-bench_0.6.2_linux_amd64.tar.gz
+tar -xvf kube-bench_0.6.2_linux_amd64.tar.gz
+
+./kube-bench --config-dir `pwd`/cfg --config `pwd`/cfg/config.yaml > /var/www/html/index.html
+
+cat /var/www/html/index.html | grep kubelet
+
+
+# fix kubelet
+
+# on controlplane
+vi /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+
+# add
+Environment="KUBELET_EXTRA_ARGS=--protect-kernel-defaults=true"
+
+systemctl daemon-reload
+systemctl restart kubelet
+
+# verify 
+systemctl status kubelet
+
+# on node01
+vi /var/lib/kubelet/config.yaml
+
+# add
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+protectKernelDefaults: true # add
+
+systemctl daemon-reload
+systemctl restart kubelet
+
+# verify
+systemctl status kubelet
+
+
+# fix kube-controller-manager
+cat /var/www/html/index.html | grep kube-controller-manager
+
+vi /etc/kubernetes/manifests/kube-controller-manager.yaml
+# add
+    - --terminated-pod-gc-threshold=10
+    - --profiling=false
+
+
+# fix kube-scheduler
+cat /var/www/html/index.html | grep kube-scheduler
+
+vi /etc/kubernetes/manifests/kube-scheduler.yaml
+
+# add
+    - --profiling=false
+
+# verify
+kubectl get po -n kube-system kube-scheduler-controlplane
+
+
+# fix kube-apiserver
+cat /var/www/html/index.html | grep kube-apiserver
+
+vi /etc/kubernetes/manifests/kube-apiserver.yaml
+
+# add
+    - --profiling=false
+    - --insecure-port=0
+    - --audit-log-path=/var/log/kube-apiserver.log
+    - --audit-log-maxage=30
+    - --audit-log-maxbackup=10
+    - --audit-log-maxsize=100
+
+# verify
+ps -aux | grep kube-apiserver
+watch crictl ps
+
+# if kube-apiserver is down for long time, try reload kubelet.
+systemctl daemon-reload
+systemctl restart kubelet
+
+
+# see logs
+cat /var/log/syslog | grep kube-apiserver
+
+kubectl get pod -n kube-system kube-apiserver-controlplane
+kubectl logs -n kube-system kube-apiserver-master -c kube-apiserver
+
+
+# fix etcd
+ls -l /var/lib/etcd
+sudo chown -R etcd:etcd /var/lib/etcd
