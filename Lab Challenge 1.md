@@ -1,13 +1,14 @@
 # KodeKloud-CKS-Challenges
-Answers for KodeKloud CKS Challenges
+Answers for KodeKloud CKS Challenge 1
 
 Answer
+============
 
 docker image ls
 
 docker images | awk '/nginx/ {print $1 ":" $2}' | sort -u
 
-# scan automatically in nginx images in repository.
+// scan automatically in nginx images in repository.
 for i in $(docker images | awk '/nginx/ {print $1 ":" $2}' | sort -u) ; do echo $i ; trivy image --severity CRITICAL $i | grep Total ; done
 
 trivy image nginx:alpine
@@ -21,7 +22,7 @@ apparmor_parser /etc/apparmor.d/usr.sbin.nginx
 cat /sys/kernel/security/apparmor/profiles | grep custom-nginx
 
 vi 1.yaml
----
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -55,7 +56,7 @@ spec:
           name: data-volume
         ports:
         - containerPort: 80
----		  
+		  
 apiVersion: v1
 kind: Service
 metadata:
@@ -72,7 +73,7 @@ spec:
     app: alpha-xyz
   sessionAffinity: None
   type: ClusterIP
----
+
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -92,7 +93,7 @@ spec:
       ports:
        - protocol: TCP
          port: 80
----
+
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -106,7 +107,7 @@ spec:
       storage: 1Gi
   storageClassName: local-storage
   volumeMode: Filesystem
----
+
 
 kubectl delete --force -f 1.yaml
 
