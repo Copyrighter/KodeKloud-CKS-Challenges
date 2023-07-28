@@ -1,4 +1,4 @@
-\# KodeKloud-CKS-Challenges
+# KodeKloud-CKS-Challenges
 Answers for KodeKloud CKS Challenge 1
 
 Answer
@@ -7,7 +7,7 @@ docker image ls
 
 docker images | awk '/nginx/ {print $1 ":" $2}' | sort -u
 
-\# scan automatically in nginx images in repository.
+# scan automatically in nginx images in repository.
 for i in $(docker images | awk '/nginx/ {print $1 ":" $2}' | sort -u) ; do echo $i ; trivy image --severity CRITICAL $i | grep Total ; done
 
 trivy image nginx:alpine
