@@ -1,0 +1,274 @@
+Answer
+
+cd ~/webapp/
+mkdir app
+mv app.py app/
+mv requirements.txt app/
+mv templates/ app/
+
+vi /root/webapp/Dockerfile
+# change
+EXPOSE 22    # delete
+USER root
+
+# to
+USER worker
+
+
+# Dockerfile
+FROM python:3.6-alpine
+## Install Flask
+RUN pip install flask
+## Copy All files to /opt
+COPY . /opt/
+## Flask app to be exposed on port 8080
+EXPOSE 8080
+## Flask app to be run as 'worker'
+RUN adduser -D worker
+## Expose port 22
+WORKDIR /opt
+USER worker
+ENTRYPOINT ["python", "app.py"]
+
+
+cd /root/webapp/app
+docker build -t kodekloud/webapp-color:stable -f /root/webapp/Dockerfile .
+
+docker image ls
+
+docker image rm kodekloud/webapp-color:stable
+# in case image is inuse.
+docker image rm kodekloud/webapp-color:stable --force
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    name: staging-webapp
+  name: staging-webapp
+  namespace: staging
+spec:
+  containers:
+  - env:
+    - name: APP_COLOR
+      value: pink
+    image: kodekloud/webapp-color:stable
+    imagePullPolicy: Never
+    name: webapp-color
+    resources: {}
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        add:
+        - NET_ADMIN
+      runAsUser: 0
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    startupProbe:
+      exec:
+        command:
+        - rm
+        - /bin/sh
+        - /bin/ash
+      initialDelaySeconds: 5
+      periodSeconds: 5
+    volumeMounts:
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-7rb9z
+      readOnly: true
+  dnsPolicy: ClusterFirst
+  enableServiceLinks: true
+  nodeName: controlplane
+  preemptionPolicy: PreemptLowerPriority
+  priority: 0
+  restartPolicy: Always
+  schedulerName: default-scheduler
+  securityContext: {}
+  serviceAccount: default
+  serviceAccountName: default
+  terminationGracePeriodSeconds: 30
+  tolerations:
+  - effect: NoExecute
+    key: node.kubernetes.io/not-ready
+    operator: Exists
+    tolerationSeconds: 300
+  - effect: NoExecute
+    key: node.kubernetes.io/unreachable
+    operator: Exists
+    tolerationSeconds: 300
+  volumes:
+  - name: kube-api-access-7rb9z
+    projected:
+      defaultMode: 420
+      sources:
+      - serviceAccountToken:
+          expirationSeconds: 3607
+          path: token
+      - configMap:
+          items:
+          - key: ca.crt
+            path: ca.crt
+          name: kube-root-ca.crt
+      - downwardAPI:
+          items:
+          - fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+            path: namespace
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    name: dev-webapp
+  name: dev-webapp
+  namespace: dev
+spec:
+  containers:
+  - env:
+    - name: APP_COLOR
+      value: darkblue
+    image: kodekloud/webapp-color:stable
+    imagePullPolicy: Never
+    name: webapp-color
+    resources: {}
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        add:
+        - NET_ADMIN
+      runAsUser: 0
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    startupProbe:
+      exec:
+        command:
+        - rm
+        - /bin/sh
+        - /bin/ash
+      initialDelaySeconds: 5
+      periodSeconds: 5
+    volumeMounts:
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-thsqm
+      readOnly: true
+  dnsPolicy: ClusterFirst
+  enableServiceLinks: true
+  nodeName: controlplane
+  preemptionPolicy: PreemptLowerPriority
+  priority: 0
+  restartPolicy: Always
+  schedulerName: default-scheduler
+  securityContext: {}
+  serviceAccount: default
+  serviceAccountName: default
+  terminationGracePeriodSeconds: 30
+  tolerations:
+  - effect: NoExecute
+    key: node.kubernetes.io/not-ready
+    operator: Exists
+    tolerationSeconds: 300
+  - effect: NoExecute
+    key: node.kubernetes.io/unreachable
+    operator: Exists
+    tolerationSeconds: 300
+  volumes:
+  - name: kube-api-access-thsqm
+    projected:
+      defaultMode: 420
+      sources:
+      - serviceAccountToken:
+          expirationSeconds: 3607
+          path: token
+      - configMap:
+          items:
+          - key: ca.crt
+            path: ca.crt
+          name: kube-root-ca.crt
+      - downwardAPI:
+          items:
+          - fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+            path: namespace
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+  generation: 1
+  labels:
+    name: prod-web
+  name: prod-web
+  namespace: prod
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      name: prod-web
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        name: prod-web
+      name: dev-web
+    spec:
+      containers:
+      - envFrom:
+        - secretRef:
+            name: prod-db
+        image: mmumshad/simple-webapp-mysql
+        imagePullPolicy: Always
+        name: webapp-mysql
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        resources: {}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - all
+          readOnlyRootFilesystem: true
+          runAsUser: 10001
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prod-netpol
+  namespace: prod
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: prod
+---
+
+kubectl delete --force -f 2.yaml
+kubectl create -f 2.yaml
+
+# COPY fixed YAML to:
+vi /root/dev-webapp.yaml
+vi /root/staging-webapp.yaml
+
+kubectl -n staging exec staging-webapp -c webapp-color -it -- sh
