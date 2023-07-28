@@ -1,0 +1,158 @@
+Answer
+
+# Install Falco binary
+
+# 1 - Falco Doc -> Not working.
+curl -L -O https://download.falco.org/packages/bin/x86_64/falco-0.35.1-x86_64.tar.gz
+
+tar -xvf falco-0.35.1-x86_64.tar.gz
+cp -R falco-0.35.1-x86_64/* /
+
+apt update -y
+apt install -y dkms make linux-headers-$(uname -r)
+# If you use the falco-driver-loader to build the BPF probe locally you need also clang toolchain
+apt install -y clang llvm
+
+# If you want to install the kernel module
+falco-driver-loader module
+# If you want to install the eBPF probe
+falco-driver-loader bpf
+
+# add Falco as Service
+vi /etc/systemd/system/falco.service
+
+[Unit]
+Description=Falco Sysdig Runtime Security
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/falco --pidfile /var/run/falco.pid
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+
+systemctl enable falco
+
+systemctl start falco
+
+# verify.
+systemctl status falco
+
+journalctl -u falco.service
+
+
+
+# FIX file-output
+vi /etc/falco/falco.yaml
+
+file_output:
+  enabled: true
+  keep_alive: false
+  filename: /opt/falco.log
+
+systemctl restart falco
+
+systemctl status falco
+
+journalctl -u falco.service
+
+
+
+# FIX audit-log + Auditing
+mkdir -p /var/log/kubernetes/audit/
+
+vi /etc/kubernetes/audit-policy.yaml
+
+---
+apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+  - level: Metadata
+    namespaces: ["omega","citadel","eden-prime"]
+    resources:
+      - group: ""
+        resources: ["pods","configmaps"]
+omitStages:
+  - "RequestReceived"
+---
+  
+kubectl apply -f /etc/kubernetes/audit-policy.yaml
+ 
+vi /etc/kubernetes/manifests/kube-apiserver.yaml
+
+# add
+    - --audit-policy-file=/etc/kubernetes/audit-policy.yaml
+    - --audit-log-path=/var/log/kubernetes/audit/audit.log
+    - --audit-log-maxage=30
+    - --audit-log-maxbackup=10
+    - --audit-log-maxsize=100
+
+volumeMounts:
+  - mountPath: /etc/kubernetes/audit-policy.yaml
+    name: audit
+    readOnly: true
+  - mountPath: /var/log/kubernetes/audit/audit.log
+    name: audit-log
+    readOnly: false
+
+volumes:
+- name: audit
+  hostPath:
+    path: /etc/kubernetes/audit-policy.yaml
+    type: File
+- name: audit-log
+  hostPath:
+    path: /var/log/kubernetes/audit/audit.log
+    type: FileOrCreate
+	
+# verify
+ps -aux | grep kube-apiserver
+watch crictl ps
+
+# if kube-apiserver is down for long time, try reload kubelet.
+systemctl daemon-reload
+systemctl restart kubelet
+
+systemctl status kubelet
+
+# FIX Security Report
+
+# FIX /opt/compromised_pods
+cat /opt/falco.log
+
+# identify container-id
+# Jul 28 18:37:02 vagrant falco: 18:37:01.972723806: Error Package management process launched in container (user=root user_loginuid=-1 command=apt install nginx pid=25876 container_id=306efce77032 container_name=k8s_eden-software2_eden-software2_eden-prime_465f0a10-4e94-4752-9f86-1e8899a99d0d_0 image=ubuntu:latest exe_flags=EXE_WRITABLE)
+
+cat /var/log/syslog | grep falco
+
+# identify POD ID
+crictl ps -id d3ede6d9023c
+
+crictl pods -id fc3ec5da07fcb
+
+echo "eden-prime,eden-software2" > /opt/compromised_pods
+
+# FIX /opt/blacklist_users
+
+# identify
+"impersonatedUser": {
+    "username": "agent-smith",
+    "groups": [
+      "system:authenticated"
+    ]
+  },
+
+cat /var/log/kubernetes/audit/audit.log | jq 'select(.objectRef.namespace == "citadel")| select (.user.username != "system:node:controlplane")'
+
+echo "agent-smith,important_role_do_not_delete,important_binding_do_not_delete/citadel" > /opt/blacklist_users
+
+# FIX secret + deploy
+kubectl get role,rolebinding -n citadel
+
+kubectl -n citadel delete role important_role_do_not_delete
+kubectl -n citadel delete rolebinding important_binding_do_not_delete
+
+# FIX pod
+kubectl delete --force -n eden-prime pod eden-software2
+
